@@ -41,17 +41,15 @@ def main():
     limo = options.limo
     model = options.model
     
-    iters = 15
-    max_position = 50
+    iters = 5
+    max_position = 10
 
     if model in ['qwen32']:
-        n_sample = 8
+        n_sample = 16
         max_try = 8
     else:
-        # n_sample = 64
-        # max_try = 4
-        n_sample = 16
-        max_try = 16
+        n_sample = 64
+        max_try = 4
         
     if model in ['phi', 'qwen32']:
         max_tokens = 2000
@@ -71,17 +69,17 @@ def main():
     # model_name = 'Qwen/Qwen2.5-1.5B'
     # model_name = 'microsoft/phi-4'
 
-    model_configs = {
+    models = {
               'phi': {'name':'microsoft/phi-4', 'n_gpu': 1},
               'qwen': {'name':'Qwen/Qwen2.5-1.5B', 'n_gpu':1},
               'granite': {'name':'ibm-granite/granite-3.1-8b-instruct', 'n_gpu':1},
-              'qwen32': {'name': 'Qwen/Qwen2.5-32B-Instruct', 'n_gpu': 2}
+              'qwen32': {'name': 'Qwen/Qwen2.5-32B-Instruct', 'n_gpu': 4}
              }
 
-    if model not in model_configs:
+    if model not in models:
         sys.exit('Unknown model')
     else:
-        model_name = model_configs[model]['name']
+        model_name = models[model]['name']
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
         
@@ -92,7 +90,7 @@ def main():
 
     data_name = data_path.split('/')[-1][:-5]
     
-    base_dir = f'./results-{data_name}-{model}-iters:{iters}/'
+    base_dir = f'./results-{data_name}-{model}/'
     
     try:
         os.makedirs(base_dir)
@@ -121,7 +119,7 @@ def main():
                                  temperature = 0.7)
 
     llm = LLM(model=model_name, enable_prefix_caching = True, gpu_memory_utilization = 0.95,
-             tensor_parallel_size=model_configs[model]['n_gpu'], disable_custom_all_reduce=model_configs[model]['n_gpu']>1)
+             tensor_parallel_size=model_configs[model]['n_gpu'], disable_custom_all_reduce=model_configs[model]['n_gpu']>1))
     
     for i, d in enumerate(data):
 
@@ -139,7 +137,7 @@ def main():
             print('SKIPPED - none answer')
             continue
             
-        # sample_success = True
+        sample_success = True
         
         cur_answer = ''
 
@@ -173,36 +171,29 @@ def main():
                     if count_try == max_try:
                         break
         
-            # if not found_answer:
-            #     print(f'Faied at iter {it}')
-            #     sample_success = False
-            #     break
-
-            if found_answer:
-                idx_sol = scores.index(1)
-            else:
-                idx_sol = 0
+            if not found_answer:
+                print(f'Faied at iter {it}')
+                sample_success = False
+                break
                 
+            idx_sol = scores.index(1)
             if it < iters - 1:
                 cut_response, delimiter_count = insert_phrase(responses[idx_sol], delimiter, special_phrases, max_position = max_position)
                 cur_answer = cur_answer + cut_response
                 cur_answer = re.sub(r'\\boxed\{([^}]+)\}', r'\1', cur_answer)
-                print(f'Delimiter count {delimiter_count}')
+                # print(f'Delimiter count {delimiter_count}')
             else:
                 cur_answer = cur_answer + responses[idx_sol]
             print(f'Iteration {it} mean reward {np.mean(scores)}')
             # print(cur_answer)
 
-        # if sample_success:
-        if found_answer:
+        if sample_success:
             new_d = copy.deepcopy(d)
             new_d['insertion_sample'] = cur_answer
             new_d['problem-input'] = prompt_d
             new_data.append(new_d)
             with open(save_path, 'w') as f:
                 json.dump(new_data, f)
-        else:
-            print(f'SKIPPING sample - correct solution not found!')
 
         print('Sample took', time.time() - t_s)
         sys.stdout.flush()
